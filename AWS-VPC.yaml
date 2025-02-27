@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation template to create a VPC with public and private subnets, and launch EC2 instances in each.
+
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.10.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MyVPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MyInternetGateway
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.10.1.0/24
+      AvailabilityZone: us-east-1a # Or choose another AZ in us-east-1
+      Tags:
+        - Key: Name
+          Value: PublicSubnet
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.10.2.0/24
+      AvailabilityZone: us-east-1b # Or choose another AZ in us-east-1, different from PublicSubnet
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTable
+
+  # NAT Gateway for outbound internet access from private subnet (Optional, but recommended)
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt PublicElasticIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway # Use NatGateway for outbound internet
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  PublicElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  PublicInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-085ad6ae776d8f09c # Replace with a valid AMI ID for us-east-1
+      InstanceType: t2.micro # Or another suitable instance type
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PublicSubnet
+      AutoassignPublicIp: true # Already handled by EIP association for the Nat Gateway
+      Tags:
+        - Key: Name
+          Value: PublicInstance
+
+  PrivateInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-085ad6ae776d8f09c # Replace with a valid AMI ID for us-east-1
+      InstanceType: t2.micro # Or another suitable instance type
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnet
+      Tags:
+        - Key: Name
+          Value: PrivateInstance
+
+Outputs:
+  VpcId:
+    Description: ID of the newly created VPC
+    Value: !Ref VPC
+  PublicSubnetId:
+    Description: ID of the public subnet
+    Value: !Ref PublicSubnet
+  PrivateSubnetId:
+    Description: ID of the private subnet
+    Value: !Ref PrivateSubnet
+  PublicInstanceId:
+    Description: ID of the public EC2 instance
+    Value: !Ref PublicInstance
+  PrivateInstanceId:
+    Description: ID of the private EC2 instance
+    Value: !Ref PrivateInstance
+  NatGatewayId:
+    Description: ID of the NAT Gateway
+    Value: !Ref NatGateway
+  PublicElasticIP:
+    Description: Public Elastic IP
+    Value: !GetAtt PublicElasticIP.PublicIp
